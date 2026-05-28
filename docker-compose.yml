@@ -1,0 +1,85 @@
+version: "3.9"
+
+# WHY Redpanda instead of Kafka + Zookeeper?
+#   Kafka requires a separate Zookeeper process (or KRaft mode configuration),
+#   adds ~800 MB RAM overhead on a laptop, and takes 30-60 s to start.
+#   Redpanda is a single binary, Kafka-API compatible, starts in <2 s,
+#   and consumes ~150 MB RAM — a much friendlier dev experience without
+#   changing any producer/consumer code because the wire protocol is identical.
+#
+# WHY Postgres instead of something else for the sink?
+#   Postgres gives us structured queries for the dashboard, a free time-series
+#   story via TimescaleDB (future upgrade path), and psycopg2 is universally
+#   understood. A Cassandra or ClickHouse sink would be production-appropriate
+#   but adds operational complexity during prototyping.
+
+services:
+
+  # ── Message broker ──────────────────────────────────────────────────────────
+  redpanda:
+    image: redpandadata/redpanda:v23.3.18
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned                 # disable CPU pinning on a shared laptop
+      - --smp 1                           # single CPU shard; fine for dev throughput
+      - --memory 512M
+      - --reserve-memory 0M
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr localhost:8082
+      - --schema-registry-addr 0.0.0.0:8081
+      - --rpc-addr 0.0.0.0:33145
+      - --advertise-rpc-addr redpanda:33145
+    ports:
+      - "9092:9092"    # Kafka wire protocol — used by producer, Spark, and any CLI tools
+      - "18081:8081"   # Schema Registry — optional, useful if we add Avro later
+      - "8082:8082"    # Pandaproxy (REST) — handy for quick manual publishes
+      - "9644:9644"    # Admin API — health checks
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Redpanda Console — browser UI for inspecting topics and messages
+  # WHY: faster than CLI for debugging message schema during development
+  redpanda-console:
+    image: redpandadata/console:v2.4.6
+    container_name: redpanda-console
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: redpanda:29092
+      KAFKA_SCHEMAREGISTRY_ENABLED: "true"
+      KAFKA_SCHEMAREGISTRY_URLS: "http://redpanda:8081"
+    ports:
+      - "8080:8080"   # browse at http://localhost:8080
+
+  # ── Relational sink ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: anomaly
+      POSTGRES_PASSWORD: anomaly
+      POSTGRES_DB: anomaly_db
+    ports:
+      - "5432:5432"   # standard Postgres port; connect with any psql client
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anomaly -d anomaly_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  redpanda_data:
+  postgres_data:

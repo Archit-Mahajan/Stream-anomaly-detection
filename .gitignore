@@ -1,0 +1,51 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Test / cache
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Spark checkpoints (runtime state, not source)
+streaming/checkpoints/
+
+# Trained model artifacts (reproducible via `make train`)
+model/isolation_forest.pkl
+model/feature_pipeline.pkl
+model/metrics.json
+model/training_summary.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+/tmp/
+
+# Claude Code session file (architecture is documented in README)
+CLAUDE.md

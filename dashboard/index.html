@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stream Anomaly Detector</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --card:     #161b22;
+      --border:   #21262d;
+      --text:     #c9d1d9;
+      --muted:    #8b949e;
+      --green:    #3fb950;
+      --red:      #f85149;
+      --orange:   #e3b341;
+      --blue:     #58a6ff;
+      --purple:   #bc8cff;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 10;
+    }
+
+    .logo {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0.01em;
+    }
+
+    .logo span { color: var(--red); }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      display: inline-block;
+      margin-right: 6px;
+      transition: background 0.3s;
+    }
+    .status-dot.live { background: var(--green); animation: pulse 2s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    /* ── Layout ──────────────────────────────────────────────────────────── */
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    /* ── Stats row ───────────────────────────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+    }
+
+    .stat-block { display: flex; flex-direction: column; gap: 4px; }
+    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .stat-value { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+    .stat-value.accent-red   { color: var(--red); }
+    .stat-value.accent-green { color: var(--green); }
+    .stat-value.accent-blue  { color: var(--blue); }
+
+    .divider {
+      width: 1px;
+      background: var(--border);
+      align-self: stretch;
+      margin: 0 4px;
+    }
+
+    /* ── Type breakdown ──────────────────────────────────────────────────── */
+    .type-row {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .type-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .type-label { font-size: 11px; color: var(--muted); }
+    .type-count { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    /* ── Chart ───────────────────────────────────────────────────────────── */
+    .chart-wrap {
+      position: relative;
+      height: 160px;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .chart-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ── Alerts table ────────────────────────────────────────────────────── */
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      padding: 6px 10px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    tbody tr:hover td { background: rgba(255,255,255,0.03); }
+
+    .row-new td { background: rgba(63, 185, 80, 0.06); }
+
+    .mono { font-family: "SF Mono", "Fira Code", monospace; }
+    .right { text-align: right; }
+
+    .score-high { color: var(--red); font-weight: 600; }
+    .score-med  { color: var(--orange); }
+    .score-low  { color: var(--muted); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+
+    .badge-spike  { background: rgba(227,179,65,0.18); color: var(--orange); }
+    .badge-geo    { background: rgba(248,81,73,0.18);  color: var(--red);    }
+    .badge-hour   { background: rgba(188,140,255,0.18);color: var(--purple); }
+    .badge-unknown{ background: rgba(139,148,158,0.18);color: var(--muted);  }
+
+    .tx-id { color: var(--muted); font-size: 12px; }
+
+    .empty-row td {
+      text-align: center;
+      color: var(--muted);
+      padding: 32px;
+      font-size: 13px;
+    }
+
+    /* ── Model metrics panel ─────────────────────────────────────────────── */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 12px;
+    }
+
+    .metric-item { display: flex; flex-direction: column; gap: 2px; }
+    .metric-label { font-size: 11px; color: var(--muted); }
+    .metric-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--blue); }
+
+    /* ── Top row ─────────────────────────────────────────────────────────── */
+    .top-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 700px) { .top-row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="logo">Stream <span>Anomaly</span> Detector</div>
+    <div class="header-right">
+      <span><span class="status-dot" id="status-dot"></span><span id="status-text">Connecting…</span></span>
+      <span id="last-updated"></span>
+      <a href="/docs" style="color:var(--blue);text-decoration:none;">API docs</a>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ── Top row: live stats + model metrics ────────────────────────────── -->
+    <div class="top-row">
+
+      <div class="card">
+        <div class="card-title">Live stats &mdash; last <span id="window-label">10</span> min</div>
+        <div class="stats-grid">
+          <div class="stat-block">
+            <div class="stat-label">Transactions</div>
+            <div class="stat-value" id="stat-tx">—</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-label">Alerts</div>
+            <div class="stat-value accent-red" id="stat-alerts">—</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-label">Anomaly rate</div>
+            <div class="stat-value accent-red" id="stat-rate">—</div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;">
+          <div class="card-title">By type</div>
+          <div class="type-row">
+            <div class="type-item">
+              <div class="type-label">amount_spike</div>
+              <div class="type-count" id="type-spike" style="color:var(--orange)">—</div>
+            </div>
+            <div class="type-item">
+              <div class="type-label">geo_jump</div>
+              <div class="type-count" id="type-geo" style="color:var(--red)">—</div>
+            </div>
+            <div class="type-item">
+              <div class="type-label">odd_hour_burst</div>
+              <div class="type-count" id="type-hour" style="color:var(--purple)">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Model metrics (holdout evaluation)</div>
+        <div class="metrics-grid">
+          <div class="metric-item">
+            <div class="metric-label">F1</div>
+            <div class="metric-value" id="m-f1">—</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">Precision</div>
+            <div class="metric-value" id="m-precision">—</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">Recall</div>
+            <div class="metric-value" id="m-recall">—</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">AUPRC</div>
+            <div class="metric-value" id="m-auprc">—</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;">
+          <div class="card-title">Per-type recall</div>
+          <div class="type-row" style="gap:16px;">
+            <div class="type-item">
+              <div class="type-label">spike</div>
+              <div class="type-count mono" id="r-spike" style="font-size:14px;color:var(--orange)">—</div>
+            </div>
+            <div class="type-item">
+              <div class="type-label">geo</div>
+              <div class="type-count mono" id="r-geo" style="font-size:14px;color:var(--red)">—</div>
+            </div>
+            <div class="type-item">
+              <div class="type-label">odd_hour</div>
+              <div class="type-count mono" id="r-hour" style="font-size:14px;color:var(--purple)">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Anomaly rate chart ──────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-title">Anomaly rate over time (10-min rolling window, sampled every 5 s)</div>
+      <div class="chart-wrap">
+        <canvas id="chart"></canvas>
+        <div class="chart-empty" id="chart-empty">Waiting for data…</div>
+      </div>
+    </div>
+
+    <!-- ── Live alerts table ───────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-title">Recent alerts (live &mdash; last 30)</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>User</th>
+              <th class="right">Amount</th>
+              <th>Category</th>
+              <th>Country</th>
+              <th class="right">Score</th>
+              <th>Type</th>
+              <th>TX ID</th>
+            </tr>
+          </thead>
+          <tbody id="alert-body">
+            <tr class="empty-row"><td colspan="8">Waiting for alerts…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // ── Chart state ─────────────────────────────────────────────────────────
+    const MAX_SAMPLES = 72; // 6 minutes at 5-second intervals
+    const rateHistory = [];
+    const canvas = document.getElementById('chart');
+    const chartEmpty = document.getElementById('chart-empty');
+
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width  = rect.width  * devicePixelRatio;
+      canvas.height = rect.height * devicePixelRatio;
+      canvas.style.width  = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+      drawChart();
+    }
+
+    new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
+
+    function drawChart() {
+      const ctx = canvas.getContext('2d');
+      const dpr = devicePixelRatio;
+      const W = canvas.width, H = canvas.height;
+
+      ctx.clearRect(0, 0, W, H);
+
+      if (rateHistory.length < 2) return;
+
+      chartEmpty.style.display = 'none';
+
+      const pad = { top: 10 * dpr, right: 12 * dpr, bottom: 24 * dpr, left: 48 * dpr };
+      const w = W - pad.left - pad.right;
+      const h = H - pad.top  - pad.bottom;
+
+      const maxRate = Math.max(...rateHistory, 0.02);
+      const GRID_LINES = 4;
+
+      // Grid + Y labels
+      ctx.font = `${10 * dpr}px "SF Mono", monospace`;
+      ctx.textAlign = 'right';
+
+      for (let i = 0; i <= GRID_LINES; i++) {
+        const y = pad.top + (h / GRID_LINES) * i;
+        const val = maxRate * (1 - i / GRID_LINES);
+
+        ctx.strokeStyle = '#21262d';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + w, y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#8b949e';
+        ctx.fillText((val * 100).toFixed(1) + '%', pad.left - 6 * dpr, y + 4 * dpr);
+      }
+
+      // X axis
+      ctx.strokeStyle = '#30363d';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pad.left, pad.top + h);
+      ctx.lineTo(pad.left + w, pad.top + h);
+      ctx.stroke();
+
+      // Gradient fill under line
+      const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
+      grad.addColorStop(0, 'rgba(248, 81, 73, 0.25)');
+      grad.addColorStop(1, 'rgba(248, 81, 73, 0.02)');
+
+      function xOf(i) { return pad.left + (i / (MAX_SAMPLES - 1)) * w; }
+      function yOf(v) { return pad.top + h - (v / maxRate) * h; }
+
+      // Offset so most-recent sample is at right edge
+      const offset = MAX_SAMPLES - rateHistory.length;
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      rateHistory.forEach((v, i) => {
+        const x = xOf(i + offset), y = yOf(v);
+        i === 0 ? ctx.moveTo(x, pad.top + h) : null;
+        ctx.lineTo(x, y);
+      });
+      ctx.lineTo(xOf(rateHistory.length - 1 + offset), pad.top + h);
+      ctx.closePath();
+      ctx.fill();
+
+      // Line
+      ctx.strokeStyle = '#f85149';
+      ctx.lineWidth = 2 * dpr;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      rateHistory.forEach((v, i) => {
+        const x = xOf(i + offset), y = yOf(v);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Latest value label
+      const lastX = xOf(rateHistory.length - 1 + offset);
+      const lastY = yOf(rateHistory[rateHistory.length - 1]);
+      ctx.fillStyle = '#f85149';
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 4 * dpr, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+
+    // ── Polling ─────────────────────────────────────────────────────────────
+    let knownIds = new Set();
+    let pollOk = false;
+
+    function setLive(ok) {
+      pollOk = ok;
+      const dot  = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      if (ok) {
+        dot.className = 'status-dot live';
+        text.textContent = 'Live';
+      } else {
+        dot.className = 'status-dot';
+        text.textContent = 'Disconnected';
+      }
+    }
+
+    async function pollStats() {
+      try {
+        const r = await fetch('/stats?window_minutes=10');
+        if (!r.ok) throw new Error(r.status);
+        const s = await r.json();
+
+        document.getElementById('window-label').textContent = s.window_minutes;
+        document.getElementById('stat-tx').textContent     = s.total_transactions.toLocaleString();
+        document.getElementById('stat-alerts').textContent = s.total_alerts.toLocaleString();
+        document.getElementById('stat-rate').textContent   = (s.anomaly_rate * 100).toFixed(2) + '%';
+
+        const bt = s.by_type || {};
+        document.getElementById('type-spike').textContent = bt.amount_spike ?? 0;
+        document.getElementById('type-geo').textContent   = bt.geo_jump ?? 0;
+        document.getElementById('type-hour').textContent  = bt.odd_hour_burst ?? 0;
+
+        const m = s.model_metrics || {};
+        document.getElementById('m-f1').textContent        = m.f1        != null ? m.f1.toFixed(3)        : '—';
+        document.getElementById('m-precision').textContent = m.precision != null ? m.precision.toFixed(3) : '—';
+        document.getElementById('m-recall').textContent    = m.recall    != null ? m.recall.toFixed(3)    : '—';
+        document.getElementById('m-auprc').textContent     = m.auprc     != null ? m.auprc.toFixed(3)     : '—';
+
+        const ptr = (m.per_type_recall || {});
+        document.getElementById('r-spike').textContent = ptr.amount_spike    != null ? (ptr.amount_spike * 100).toFixed(0) + '%'    : '—';
+        document.getElementById('r-geo').textContent   = ptr.geo_jump        != null ? (ptr.geo_jump * 100).toFixed(0) + '%'        : '—';
+        document.getElementById('r-hour').textContent  = ptr.odd_hour_burst  != null ? (ptr.odd_hour_burst * 100).toFixed(0) + '%'  : '—';
+
+        rateHistory.push(s.anomaly_rate);
+        if (rateHistory.length > MAX_SAMPLES) rateHistory.shift();
+        drawChart();
+
+        document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        setLive(true);
+      } catch (e) {
+        setLive(false);
+        console.error('stats poll failed:', e);
+      }
+    }
+
+    async function pollAlerts() {
+      try {
+        const r = await fetch('/alerts?limit=30');
+        if (!r.ok) throw new Error(r.status);
+        const alerts = await r.json();
+        renderTable(alerts);
+        setLive(true);
+      } catch (e) {
+        setLive(false);
+        console.error('alerts poll failed:', e);
+      }
+    }
+
+    const TYPE_LABELS = {
+      amount_spike:   'spike',
+      geo_jump:       'geo',
+      odd_hour_burst: 'hour',
+    };
+
+    const TYPE_CLASSES = {
+      amount_spike:   'badge-spike',
+      geo_jump:       'badge-geo',
+      odd_hour_burst: 'badge-hour',
+    };
+
+    function renderTable(alerts) {
+      const tbody = document.getElementById('alert-body');
+
+      if (!alerts.length) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No alerts yet — start the producer and streaming job.</td></tr>';
+        knownIds = new Set();
+        return;
+      }
+
+      const newIds = new Set(alerts.map(a => a.transaction_id));
+
+      tbody.innerHTML = alerts.map(a => {
+        const isNew   = !knownIds.has(a.transaction_id);
+        const time    = new Date(a.alerted_at).toLocaleTimeString();
+        const amount  = Number(a.amount).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+        const badgeCls = TYPE_CLASSES[a.anomaly_type] || 'badge-unknown';
+        const typeLabel = TYPE_LABELS[a.anomaly_type] || (a.anomaly_type || '?');
+        const scoreCls = a.score < -0.3 ? 'score-high' : a.score < -0.2 ? 'score-med' : 'score-low';
+
+        return `<tr class="${isNew ? 'row-new' : ''}">
+          <td class="mono">${time}</td>
+          <td class="mono">${esc(a.user_id)}</td>
+          <td class="mono right">${amount}</td>
+          <td>${esc(a.merchant_category)}</td>
+          <td>${esc(a.country)}</td>
+          <td class="mono right ${scoreCls}">${a.score.toFixed(4)}</td>
+          <td><span class="badge ${badgeCls}">${esc(typeLabel)}</span></td>
+          <td class="mono tx-id">${esc(a.transaction_id.slice(0, 8))}</td>
+        </tr>`;
+      }).join('');
+
+      knownIds = newIds;
+    }
+
+    function esc(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // ── Bootstrap ────────────────────────────────────────────────────────────
+    resizeCanvas();
+    pollStats();
+    pollAlerts();
+
+    setInterval(pollAlerts, 2000);
+    setInterval(pollStats,  5000);
+  </script>
+</body>
+</html>

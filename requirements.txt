@@ -1,0 +1,41 @@
+# ── Core streaming runtime ────────────────────────────────────────────────────
+# WHY PySpark over Flink/Storm?
+#   PySpark Structured Streaming has the most mature Python API, best
+#   documentation, and widest interviewer familiarity. It also handles both
+#   batch (model training) and streaming (scoring) in one framework, so we
+#   don't need two separate runtimes on a laptop.
+pyspark>=3.5.0
+
+# ── Anomaly detection ─────────────────────────────────────────────────────────
+# WHY Isolation Forest over Autoencoders or LOF?
+#   IsolationForest is O(n log n), not distance-based, so it degrades
+#   gracefully in high dimensions. It produces an anomaly *score* (not just
+#   a label), which the dashboard can threshold dynamically. It trains fast
+#   enough to retrain on a rolling window every few minutes.
+scikit-learn>=1.3.0
+
+# ── API layer ─────────────────────────────────────────────────────────────────
+# WHY FastAPI over Flask/Django?
+#   FastAPI generates OpenAPI docs automatically, validates request bodies
+#   via Pydantic, and supports async natively — critical for long-polling
+#   SSE endpoints on the dashboard without blocking the event loop.
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0   # ASGI server; [standard] adds websockets + watchfiles
+
+# ── Kafka client ─────────────────────────────────────────────────────────────
+# WHY confluent-kafka over kafka-python?
+#   confluent-kafka wraps librdkafka (C), so it's ~10x faster and handles
+#   partition rebalancing, offset commits, and backpressure more reliably.
+#   kafka-python is pure Python — simpler to install but not production-safe
+#   at any real throughput. Since Redpanda is Kafka-protocol compatible,
+#   no code changes needed when swapping brokers.
+confluent-kafka>=2.3.0
+
+# ── Data / persistence ────────────────────────────────────────────────────────
+psycopg2-binary>=2.9.0   # binary wheel avoids needing libpq-dev in CI/containers
+pandas>=2.1.0
+numpy>=1.24.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0     # load .env so secrets never get hardcoded
+httpx>=0.25.0            # async HTTP client; used by FastAPI TestClient in tests
